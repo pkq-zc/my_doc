@@ -1,0 +1,14 @@
+1.初始化工作空间: git init
+2.从现有仓库克隆: git clone
+3.添加对文件的跟踪: git add
+4.查看git状态: git status
+5.查看已暂存(执行git add)和未暂存更新(未执行git add):
+例如:修改了文件1.txt,如果没有执行'git add 1.txt',执行'git diff'会显示出不同
+但是如果已经执行了'git add 1.txt',使用'git diff'是不会显示出来的.需要使用'git diff --staged'或者'git diff --cached'
+6.提交更新: git commit
+可以添加 -m '注释',还可以添加 -a 自动提交已跟踪的文件,例如:git commit -a -m 'added new benchmarks'
+7.删除文件: git rm
+本地删除文件后,使用git status 可以看见文件被删除了,使用'git rm 删除的文件名',然后使用status查看,文件会被加入暂存区,然后git commit 就会把git仓库中的文件删除
+8.修改文件名: git mv 旧文件名 新文件名
+9.查看提交历史: git log
+可以添加参数 -p 显示每次提交差异  -n n代表数字,显示最近n次提交

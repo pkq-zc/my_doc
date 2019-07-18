@@ -1,0 +1,27 @@
+1.默认使用 ssh-keygen -t rsa -C 763757299@qq.com 创建的ssh key 是id_rsa,但是如果你同时还想生成其他key的话
+得指定生成的文件名,例如:ssh-keygen -t rsa -C 763757299@qq.com -f ~/.ssh/pkq-zc
+执行完之后,会在你的 ~/.ssh 下生成 pkq-zc 和 pkq-zc.pub
+
+2.配置config
+在config下配置如下内容:
+
+Host pkq-zc
+HostName github.com
+IdentityFile ~/.ssh/pkq-zc
+User git
+
+Host github.com
+HostName github.com
+IdentityFile ~/.ssh/id_rsa
+user git
+
+Host 代表你HostName的主机
+HostName 主机名称
+IdentityFile 私钥
+User 使用用户
+
+
+3.使用
+例如:原先用使用:git clone git@github.com:pkq-zc/test.git,现在使用:git clone pkq-zc:pkq-zc/test.git就可以了.
+使用第一个命令下载下来的代码,我是没有权限提交修改代码的,但是第二个是可以的.
+
