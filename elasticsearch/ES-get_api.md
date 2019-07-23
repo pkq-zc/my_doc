@@ -165,7 +165,7 @@ PUT order
   "settings": {
     "number_of_shards": 16,
     "number_of_replicas": 1
-  }, 
+  },
   "mappings": {
     "properties": {
       "order_no":{"type":"keyword"},
