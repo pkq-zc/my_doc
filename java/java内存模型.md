@@ -102,6 +102,6 @@ class A {
 简单点说就是使用volatile修饰的变量,即使在多线程中,只要有线程修改了volatile的值,那么在其他线程中,修改后的值能立马被读取出来.
 
 > 线程启动规则(Thread Start Rule):Thread对象的start()方法先发生于该线程内的每一个动作.  
-> 线程终止规则(Thread Termination Rule):线程中所有操作都先行发生于对此程序的终止诊断.
-> 对象终结规则(Finalizer Rule):一个对象的初始化函数,构造函数先行发生于它的finalizer方法.
-> 传递性(Transitivity):如果A操作先行发生于操作B,操作B先行发生于操作C,那么就可以得出A先行发生于C操作.
+> 线程终止规则(Thread Termination Rule):线程中所有操作都先行发生于对此程序的终止诊断.  
+> 对象终结规则(Finalizer Rule):一个对象的初始化函数,构造函数先行发生于它的finalizer方法.  
+> 传递性规则(Transitivity):如果A操作先行发生于操作B,操作B先行发生于操作C,那么就可以得出A先行发生于C操作.
