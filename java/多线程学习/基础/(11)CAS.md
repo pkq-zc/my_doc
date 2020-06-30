@@ -1,4 +1,4 @@
-# java多线程之CAS
+# (11)CAS
 
 ## 什么是CAS
 
@@ -96,7 +96,7 @@ public class App5 {
 
 最后打印结果如下:
 
-```
+```java
 t1 ==> i =1
 t2 ==> i = 2
 t2 ==> i = 1

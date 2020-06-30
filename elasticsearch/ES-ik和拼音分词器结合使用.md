@@ -1,0 +1,41 @@
+
+```json
+{
+    "setting":{
+        "analysis":{
+            "analyzer":{
+                "ik_smart_pinyin":{
+                    "type":"custom",
+                    "tokenizer":"ikk_smart",
+                    "filter":["pinyin_filter","word_delimiter"]
+                },
+                "ik_max_word_pinyin":{
+                    "type":"custom",
+                    "tokenizer":"ikk_smart",
+                    "filter":["pinyin_filter","word_delimiter"]
+                }
+            },
+            "filter":{
+                "pinyin_filter":{
+                    "type":"pinyin",
+                    "keep_first_letter":true,
+                    "keep_separate_first_letter":false,
+                    "limit_first_letter_length":16,
+                    "keep_full_pinyin":true,
+                    "keep_joined_full_pinyin":true,
+                    "keep_none_chinese":true,
+                    "keep_none_chinese_together":true,
+                    "keep_none_chinese_in_first_letter":true,
+                    "keep_none_chinese_in_joined_full_pinyin":false,
+                    "none_chinese_pinyin_tokenize":true,
+                    "keep_original":true,
+                    "lowercase":true,
+                    "trim_whitespace":true,
+                    "remove_duplicated_term":true,
+                    "ignore_pinyin_offset":false
+                }
+            }
+        }
+    }
+}
+```

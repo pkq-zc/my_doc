@@ -1,4 +1,4 @@
-# java多线程之ThreadLocal
+# (10)ThreadLocal
 
 ## 作用
 
@@ -106,7 +106,7 @@ public class App4 {
 
 上面代码的结果如下:
 
-```
+```java
 [293]
 [892]
 [293, 303]
