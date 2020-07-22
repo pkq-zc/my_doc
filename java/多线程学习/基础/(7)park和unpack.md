@@ -1,8 +1,19 @@
-# (7)pack和unpark
+# (7)LockSupport
 
 ## 作用
 
-用来创建锁和其他同步类的基本线程阻塞的原语.在查看```AbstractQueuedSynchronizer```(AQS)中,发现其底层就是使用```LockSupport.park()```和```LockSupport.unpark()```实现线程的阻塞和唤醒的.它的作用与Object上的wait和notify很像,但是还是存在一些不同.
+用来创建锁和其他同步类的基本线程阻塞的原语.它的核心函数为```park```和```unpack```.  
+
+- ```park```:阻塞线程.在线程出现下面的情况之前都将保持阻塞.
+    1. 调用```unpack```释放该线程的许可.
+    2. 线程被中断.
+    3. 指定等待时间到了.
+
+- ```unpack```:释放线程许可.简单的说就是激活调用```pack```进入阻塞的线程.  
+
+```pack```还提供了一个带参方法```park(Object blocker)```,```blocker```用来代表使当前线程进入等待的对象.  
+
+在查看```AbstractQueuedSynchronizer```(AQS)中,发现其底层就是使用```LockSupport.park()```和```LockSupport.unpark()```实现线程的阻塞和唤醒的.它的作用与Object上的wait和notify很像,但是还是存在一些不同.
 
 ## 不需要在同步代码块中调用
 
