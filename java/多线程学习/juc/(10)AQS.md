@@ -6,7 +6,7 @@
 
 ## 阅读预备知识点
 
-- ```CAS```:需要知道什么是CAS.简单的说就是```比较```和```交换```.举个简单的例子:例如你去更新数据中的订单状态为```未支付```的订单为```已支付```.你的sql语句必须是```update t_order set status = '已支付' where status = '未支付'```.而不应该是```update t_order set status = '已支付'```.如果还是不理解可以查看我们之前写的关于[CAS](https://www.jianshu.com/p/171652d2a971)的文章.
+- ```CAS```:需要知道什么是CAS.简单的说就是```比较```和```交换```.举个简单的例子:例如你去更新数据中的订单状态为```未支付```的订单为```已支付```.你的sql语句必须是```update t_order set status = '已支付' where order_id = 'xxxx' and status = '未支付'```.而不应该是```update t_order set status = '已支付' where order_id = 'xxxx'```.如果还是不理解可以查看我们之前写的关于[CAS](https://www.jianshu.com/p/171652d2a971)的文章.
 
 - ```volatile```:需要知道```volatile```关键字的作用.简单的说使用它修饰的变量,只要值发生改变在其他线程能立马看见改变后的值.可以参考我之前写的关于[volatile](https://www.jianshu.com/p/a11e2c6a89aa)相关的文章.
 
@@ -176,12 +176,21 @@ public abstract class AbstractOwnableSynchronizer
 
 ### 独占模式
 
-```acquire(int arg)```就是独占模式下获取共享资源的入口,我们追踪该方法就能完整的知道在独占模式下的整个流程了.
+#### 独占模式获取锁
+
+如果我们要分析源码首先要找到一个入口,这样分析起来就比较容易了.独占模式获取共享资源的入口一共有下面三个:
+
+- ```acquire(int arg)```:这个方法是不响应中断和超时的.
+- ```acquireInterruptibly(int arg)```:这个是响应中断的.
+- ```tryAcquireNanos(int arg, long nanosTimeout)```:这个是响应超时的.
+
+上面三个方法就是获取独占模式下获取共享资源的入口了,具体实现有部分差别,但是核心过程都差不多.我这里只分析```acquire```方法,其他的如果你自己有兴趣可以自己分析.
 
 ```java
 public final void acquire(int arg) {
         if (!tryAcquire(arg) &&
             acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+            //如果线程被中断过则调用 Thread.currentThread().interrupt()
             selfInterrupt();
     }
 ```
@@ -242,12 +251,12 @@ public final void acquire(int arg) {
 
 ```java
     final boolean acquireQueued(final Node node, int arg) {
-        //获取资源是否失败
+        //是否发生了异常
         boolean failed = true;
         try {
             //标记线程是否中断
             boolean interrupted = false;
-            //又一个自旋
+            //开始自旋
             for (;;) {
                 //获取当前节点的前置节点
                 final Node p = node.predecessor();
@@ -257,7 +266,7 @@ public final void acquire(int arg) {
                     setHead(node);
                     // 去掉前置节点与当前节点的引用,便于GC回收无用节点
                     p.next = null;
-                    //设置获取资源成功
+                    //设置为false
                     failed = false;
                     return interrupted;
                 }
@@ -268,7 +277,7 @@ public final void acquire(int arg) {
                     interrupted = true;
             }
         } finally {
-            //等待过程中获取资源失败,取消节点在队列中等待.例如获取锁超时
+            //如果获取锁的过程中出现异常,则会取消当前节点
             if (failed)
                 cancelAcquire(node);
         }
@@ -301,7 +310,26 @@ public final void acquire(int arg) {
         LockSupport.park(this);
         return Thread.interrupted();
     }
+```
 
+上面代码就是让线程进入等待的全过程.它核心两个操作就是```告诉前置有效节点唤醒自己```和```进入等待```.  
+
+1. 判断当前节点的前置节点是不是头节点,如果当前节点的前置节点是头节点则尝试获取一次锁.
+2. 如果步骤1获取锁成功则返回退出了.如果没有获取成功,则从第一步从新再来.
+3. 如果前置节点不是头节点,则进入```shouldParkAfterFailedAcquire```逻辑.
+
+```shouldParkAfterFailedAcquire```主要作用就是让自己"安心的休息".怎样才能安心的休息呢?就是将当前节点的前置节点状态设置为```SIGNAL(-1)```.  
+
+1. 获取前置节点的状态,可能为```-1```,```大于0```,```小于或者等于0```这三种情况.
+2. ```-1```:不需要再做别的事了,直接返回```true```
+3. ```大于0```:只要节点状态大于0说明节点是个无效节点,这个时候会删除当前节点的无效节点.这个里面的逻辑就是一个简单的链表删除逻辑.
+4. ```小于或者等于0```:节点都是有效的节点.我们使用CAS的方式将其设置成```SIGNAL```状态即可.
+
+```parkAndCheckInterrupt```让线程进入等待.这个里面代码很简短,它就是通过调用```LockSupport.park(this)```进入等待的.```再次强调文章前的预备知识请一定先了解!!!!```.  
+
+在```finally```代码块中还有一个逻辑就是用来处理获取资源失败的情况.有些博文说这个地方会在线程中断和线程等待超时时就会调用```cancelAcquire```用来取消节点在队列中等待,这个不是```不对```的.这个只会在获取锁的过程中出现异常才会取消当前节点.因为只有线程只有获取到锁和异常才会退出自旋,```acquireQueued```是不会响应超时和中断的.而响应中断和超时的方法为:```doAcquireInterruptibly```和```doAcquireNanos```.
+
+```java
     //取消在队列中等待
     private void cancelAcquire(Node node) {
         //如果节点不存在,则直接忽略
@@ -317,25 +345,237 @@ public final void acquire(int arg) {
         Node predNext = pred.next;
         //将当前节点设置成取消状态
         node.waitStatus = Node.CANCELLED;
-        //如果当前节点为尾节点,尝试将当前节点的前节点设置成尾节点
+        //如果当前节点为尾节点,将从后往前的第一个节点设置为尾节点
         if (node == tail && compareAndSetTail(node, pred)) {
             //去掉前置节点对当前节点的引用.
             compareAndSetNext(pred, predNext, null);
         } else {
-            //当前节点不是尾节点
+            //前一个有效节点不是头节点
             int ws;
+            //如果当前节点不是老二,1-判断当前节点的前置节点是否为SIGNAL,2-如果不是则将它设置成SIGNAL
+            //如果1和2任意一个成功,再判断当前节点是不是null
             if (pred != head &&
                 ((ws = pred.waitStatus) == Node.SIGNAL ||
                  (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
                 pred.thread != null) {
+                //将当前节点的前置节点的后节点设置为当前节点的后置节点
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
             } else {
+                //如果当前节点是head的后继节点,或者上述条件不满足,那就唤醒当前节点的后继节点.(这个方法将会在解锁的时候细说)
                 unparkSuccessor(node);
             }
 
             node.next = node; // help GC
+        }
+    }
+```
+
+上面便是取消节点在队列中等待的源码.首先看前节点状态是不是无效节点(即```CANCEL```状态),如果是就一直往前遍历直到找到是有效的节点,然后将找到的节点和当前节点关联,接着将当前节点设置成```CANCEL```.接着判断当前节点的位置做不同的处理方式:  
+
+- ```当前节点是尾节点```:直接将前节点设置成尾节点,并把前节的后置节点设置成```null```.
+![current node为tail节点.png](https://i.loli.net/2020/07/23/GPnUMYt3dXw5bgf.png)
+- ```当前节点是老二```:将当前节点的后置节点设置成自己.
+![current node为老二.png](https://i.loli.net/2020/07/23/WY5XuVr2sh7UGdZ.png)
+- ```不上上面两种```:将前节点的尾节点设置成当前节点的后节点,将自己的后节点设置成自己.
+![current node既不是tail也不是老二.png](https://i.loli.net/2020/07/23/AmfLMHJQOS5IlTK.png)
+
+上面操作中我们只对```next```做了操作并没有对节点的```pred```做修改.因为如果修改```pred```可能导致```pred```指向一个已经被移除的节点.在```shouldParkAfterFailedAcquire```方法中我们可能会做下面这个操作:  
+
+```java
+    if (ws > 0) {
+            do {
+                node.prev = pred = pred.prev;
+            } while (pred.waitStatus > 0);
+            pred.next = node;
+        }
+```
+
+当进入这个方法说明共享资源已经被其他线程获取了,当前节点之前的节点都不会变化了所以在这个时候修改```pred```是安全的.  
+
+#### 独占模式释放锁
+
+上面我们讲了独占模式下如何获取锁,下面介绍如何释放锁.它的入口方法为```release(int arg)```.
+
+```java
+    public final boolean release(int arg) {
+        //tryRelease根据自己的需求实现
+        if (tryRelease(arg)) {
+            Node h = head;
+            if (h != null && h.waitStatus != 0)
+                unparkSuccessor(h);
+            return true;
+        }
+        return false;
+    }
+```
+
+解锁过程相对比较简单,核心的方法就是```unparkSuccessor```.
+
+```java
+    //唤醒节点
+    private void unparkSuccessor(Node node) {
+        //获取当前节点的等待状态
+        int ws = node.waitStatus;
+        if (ws < 0)
+            compareAndSetWaitStatus(node, ws, 0);
+        //获取当前节点的下一个节点
+        Node s = node.next;
+        //如果下一个节点为空或者取消了,就找到队列最开始的有效节点
+        if (s == null || s.waitStatus > 0) {
+            s = null;
+            //从队列的尾部向头部开始找,找到队列第一个有效状态(waitStatus < 0)的节点
+            for (Node t = tail; t != null && t != node; t = t.prev)
+                if (t.waitStatus <= 0)
+                    s = t;
+        }
+        //如果找到了,则唤醒封装在s中的线程.
+        if (s != null)
+            LockSupport.unpark(s.thread);
+    }
+```
+
+可以发现解锁唤醒线程的核心就是调用```LockSupport.unpark(s.thread)```.而获取锁时线程的等待是通过```LockSupport.park(this)```实现的.  
+上面代码中还有个一个关键点就是如果当前节点的后继节点为空或者后继节点无效则需要找到一个节点唤醒,这里面为什么是从尾节点往前找而不是往后找?  
+在入队的操作中,我们的代码如下:
+
+```java
+private Node addWaiter(Node mode) {
+        Node node = new Node(Thread.currentThread(), mode);
+        Node pred = tail;
+        if (pred != null) {
+            node.prev = pred;
+            if (compareAndSetTail(pred, node)) {
+                //可能这个还未执行
+                pred.next = node;
+                return node;
+            }
+        }
+        enq(node);
+        return node;
+    }
+```
+
+节点加入到尾节点会先将队列之前的```tail```节点设置为当前当前节点的```pred```,然后通过一个```CAS```操作将当前节点设置成尾节点.如果设置当前尾节点成功那么```node.pred = pred```和```compareAndSetTail(pred, node)```就可以看做是一个原子操作了.但是```pred.next = node```这个操作并不能保证,很可能这个还未执行.同时我们在取消节点时,也是修改```next```并未修改```pred```.所以在这里才会从```tail```往```head```方向查找.
+
+### 共享模式
+
+#### 共享模式获取锁
+
+共享模式下获取共享资源同样也提供了三个入口,分别如下:
+
+- ```acquireShared(int arg)```:不响应中断和超时.
+- ```acquireSharedInterruptibly(int arg)```:响应中断.
+- ```tryAcquireSharedNanos(int arg, long nanosTimeout)```:响应超时.
+
+可以发现它和独占模式下获取共享资源很像.我们还是只分析```acquireShared```方法,另外两个差别比较小核心流程都差不多.
+
+```java
+    public final void acquireShared(int arg) {
+        if (tryAcquireShared(arg) < 0)
+            doAcquireShared(arg);
+    }
+```
+
+上面的```tryAcquireShared(arg)```方法依然还是需要我们的同步器自己去实现.它的返回值如果为负数的话代表资源不够,返回0代表资源刚好够,如果大于0的话说明共享资源还有多余的.它的主要逻辑主要分为两步:  
+
+1. ```tryAcquireShared```尝试获取资源,成功获取则直接返回.如果获取失败则进行下一步
+2. ```doAcquireShared```获取资源失败则调用该方法让该资源进入队列等待.
+
+```java
+    private void doAcquireShared(int arg) {
+        //加入队列尾部,与独占模式差别不大
+        final Node node = addWaiter(Node.SHARED);
+        //是否异常
+        boolean failed = true;
+        try {
+            boolean interrupted = false;
+            //自旋
+            for (;;) {
+                //获取前节点
+                final Node p = node.predecessor();
+                if (p == head) {
+                    //前节点是头节点,再次尝试获取共享资源
+                    int r = tryAcquireShared(arg);
+                    if (r >= 0) {
+                        //获取成功,设置头节点如果还有剩余资源则唤醒后继节点
+                        setHeadAndPropagate(node, r);
+                        p.next = null; // help GC
+                        //如果线程被中断过,设置线程中断
+                        if (interrupted)
+                            selfInterrupt();
+                        failed = false;
+                        return;
+                    }
+                }
+                //不是头节点或者尝试获取资源失败
+                if (shouldParkAfterFailedAcquire(p, node) &&
+                    parkAndCheckInterrupt())
+                    interrupted = true;
+            }
+        } finally {
+            if (failed)
+                cancelAcquire(node);
+        }
+    }
+
+    private void setHeadAndPropagate(Node node, int propagate) {
+        //记录旧的头位置便于后面检查
+        Node h = head;
+        //设置当前节点为头节点
+        setHead(node);
+        if (propagate > 0 || h == null || h.waitStatus < 0 ||
+            (h = head) == null || h.waitStatus < 0) {
+            //如果资源还有剩余且节点有效则唤醒下一个
+            Node s = node.next;
+            if (s == null || s.isShared())
+                doReleaseShared();
+        }
+    }
+```
+
+上面的整个过程与独占锁差别都不太大,如果获取不到共享资源都会进入队列等待.不太相同的地方在于```如果获取到共享资源后,共享资源还有多余的情况下,它会唤醒后面一个等待获取资源的节点(该节点必须是SHARED)```,这也就是共享模式的特点了.  
+
+如果下一个节点需要3个资源,下一个节点的下一个节点需要2个资源.现在当前节点获取完资源后还剩2个资源会唤醒第三个节点吗?答案是```不会```.从源码中就能看出来它没有一个继续往下找的过程,如果这样也就不能体现出它按等待时间公平的原则了.
+
+#### 共享模式释放锁
+
+共享模式释放锁的入口就是```releaseShared```方法,主要代码如下:
+
+```java
+    public final boolean releaseShared(int arg) {
+        //尝试释放资源
+        if (tryReleaseShared(arg)) {
+            //唤醒后置节点
+            doReleaseShared();
+            return true;
+        }
+        return false;
+    }
+```
+
+```tryReleaseShared```这个方法就是同步器需要自己去实现的方法.与独占模式不太一样的地方在于共享模式只要释放资源成功就会去唤醒后置节点,而独占模式需要资源为0时才会去唤醒.
+
+```java
+    //唤醒后继节点,该方法在
+    private void doReleaseShared() {
+        //自旋操作
+        for (;;) {
+            Node h = head;
+            if (h != null && h != tail) {
+                int ws = h.waitStatus;
+                if (ws == Node.SIGNAL) {
+                    if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
+                        continue;
+                    unparkSuccessor(h);
+                }
+                else if (ws == 0 &&
+                         !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
+                    continue;
+            }
+            if (h == head)
+                break;
         }
     }
 ```
