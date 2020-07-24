@@ -1,4 +1,4 @@
-# AQS
+# AQS(上)-独占模式获取锁
 
 ## 简叙
 
@@ -260,7 +260,7 @@ public final void acquire(int arg) {
             for (;;) {
                 //获取当前节点的前置节点
                 final Node p = node.predecessor();
-                //如果前置节点是头节点,说明自己实际上是队列的头节点(头节点实际上是个虚节点),那么可以尝试再获取一次锁,那就不进入等待了
+                //如果前置节点是头节点,说明自己实际上是队列的头节点(头节点实际上是个虚节点),那么可以尝试再获取一次锁,如果成功那就不进入等待了
                 if (p == head && tryAcquire(arg)) {
                     //获取锁成功了,将头结点设计成自己
                     setHead(node);
@@ -270,7 +270,7 @@ public final void acquire(int arg) {
                     failed = false;
                     return interrupted;
                 }
-                //自己不是老二,老老实实进入等待.但是进入等待前需要告诉前面一个人记得叫醒自己,同时前面没用人需要把他从队列中移除.如果获取通知失败了,再次开始整个逻辑.
+                //如果自己不是老二或者获取锁失败,那就老老实实等待.但是进入等待前需要告诉前面一个人记得叫醒自己,同时前面没用人需要把他从队列中移除.
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
                     //进入到该代码块说明线程被中断了,修改中断标志
@@ -459,123 +459,6 @@ private Node addWaiter(Node mode) {
 
 节点加入到尾节点会先将队列之前的```tail```节点设置为当前当前节点的```pred```,然后通过一个```CAS```操作将当前节点设置成尾节点.如果设置当前尾节点成功那么```node.pred = pred```和```compareAndSetTail(pred, node)```就可以看做是一个原子操作了.但是```pred.next = node```这个操作并不能保证,很可能这个还未执行.同时我们在取消节点时,也是修改```next```并未修改```pred```.所以在这里才会从```tail```往```head```方向查找.
 
-### 共享模式
+## 小结
 
-#### 共享模式获取锁
-
-共享模式下获取共享资源同样也提供了三个入口,分别如下:
-
-- ```acquireShared(int arg)```:不响应中断和超时.
-- ```acquireSharedInterruptibly(int arg)```:响应中断.
-- ```tryAcquireSharedNanos(int arg, long nanosTimeout)```:响应超时.
-
-可以发现它和独占模式下获取共享资源很像.我们还是只分析```acquireShared```方法,另外两个差别比较小核心流程都差不多.
-
-```java
-    public final void acquireShared(int arg) {
-        if (tryAcquireShared(arg) < 0)
-            doAcquireShared(arg);
-    }
-```
-
-上面的```tryAcquireShared(arg)```方法依然还是需要我们的同步器自己去实现.它的返回值如果为负数的话代表资源不够,返回0代表资源刚好够,如果大于0的话说明共享资源还有多余的.它的主要逻辑主要分为两步:  
-
-1. ```tryAcquireShared```尝试获取资源,成功获取则直接返回.如果获取失败则进行下一步
-2. ```doAcquireShared```获取资源失败则调用该方法让该资源进入队列等待.
-
-```java
-    private void doAcquireShared(int arg) {
-        //加入队列尾部,与独占模式差别不大
-        final Node node = addWaiter(Node.SHARED);
-        //是否异常
-        boolean failed = true;
-        try {
-            boolean interrupted = false;
-            //自旋
-            for (;;) {
-                //获取前节点
-                final Node p = node.predecessor();
-                if (p == head) {
-                    //前节点是头节点,再次尝试获取共享资源
-                    int r = tryAcquireShared(arg);
-                    if (r >= 0) {
-                        //获取成功,设置头节点如果还有剩余资源则唤醒后继节点
-                        setHeadAndPropagate(node, r);
-                        p.next = null; // help GC
-                        //如果线程被中断过,设置线程中断
-                        if (interrupted)
-                            selfInterrupt();
-                        failed = false;
-                        return;
-                    }
-                }
-                //不是头节点或者尝试获取资源失败
-                if (shouldParkAfterFailedAcquire(p, node) &&
-                    parkAndCheckInterrupt())
-                    interrupted = true;
-            }
-        } finally {
-            if (failed)
-                cancelAcquire(node);
-        }
-    }
-
-    private void setHeadAndPropagate(Node node, int propagate) {
-        //记录旧的头位置便于后面检查
-        Node h = head;
-        //设置当前节点为头节点
-        setHead(node);
-        if (propagate > 0 || h == null || h.waitStatus < 0 ||
-            (h = head) == null || h.waitStatus < 0) {
-            //如果资源还有剩余且节点有效则唤醒下一个
-            Node s = node.next;
-            if (s == null || s.isShared())
-                doReleaseShared();
-        }
-    }
-```
-
-上面的整个过程与独占锁差别都不太大,如果获取不到共享资源都会进入队列等待.不太相同的地方在于```如果获取到共享资源后,共享资源还有多余的情况下,它会唤醒后面一个等待获取资源的节点(该节点必须是SHARED)```,这也就是共享模式的特点了.  
-
-如果下一个节点需要3个资源,下一个节点的下一个节点需要2个资源.现在当前节点获取完资源后还剩2个资源会唤醒第三个节点吗?答案是```不会```.从源码中就能看出来它没有一个继续往下找的过程,如果这样也就不能体现出它按等待时间公平的原则了.
-
-#### 共享模式释放锁
-
-共享模式释放锁的入口就是```releaseShared```方法,主要代码如下:
-
-```java
-    public final boolean releaseShared(int arg) {
-        //尝试释放资源
-        if (tryReleaseShared(arg)) {
-            //唤醒后置节点
-            doReleaseShared();
-            return true;
-        }
-        return false;
-    }
-```
-
-```tryReleaseShared```这个方法就是同步器需要自己去实现的方法.与独占模式不太一样的地方在于共享模式只要释放资源成功就会去唤醒后置节点,而独占模式需要资源为0时才会去唤醒.
-
-```java
-    //唤醒后继节点,该方法在
-    private void doReleaseShared() {
-        //自旋操作
-        for (;;) {
-            Node h = head;
-            if (h != null && h != tail) {
-                int ws = h.waitStatus;
-                if (ws == Node.SIGNAL) {
-                    if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
-                        continue;
-                    unparkSuccessor(h);
-                }
-                else if (ws == 0 &&
-                         !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
-                    continue;
-            }
-            if (h == head)
-                break;
-        }
-    }
-```
+上面是我对AQS中独占模式获取锁和释放锁的所有分析.可能分析的不是那么精准到位.后面还有两部分内容关于```共享模式锁的获取和释放```还有```Condition实现```.这两部分内容会通过两篇文章讲述,欢迎关注查看后续更新内容.
