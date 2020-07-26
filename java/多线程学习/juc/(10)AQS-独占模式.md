@@ -166,9 +166,9 @@ public abstract class AbstractOwnableSynchronizer
 
 通过上面的图心里大概应该有了模糊的概念了.下面这张图将展示```AQS```内部的等待队列的结构:  
 
-![CLH变种队列](https://wx2.sbimg.cn/2020/07/22/DJ7LO.png)  
+![等待队列.jpg](https://i.loli.net/2020/07/26/YWkGV6AvdJbf2cP.png)  
 
-```AQS```内部使用```head```和```tail```用来保存队列的头结点和尾节点.使用```state```代表资源.每个```Node```用来保存等待获取共享资源的线程.这就是```AQS```的核心内容了.
+```AQS```内部使用```head```和```tail```用来保存队列的头结点和尾节点.使用```state```代表资源.每个```Node```用来保存等待获取共享资源的线程.这就是```AQS```的核心内容了.  
 
 ## 代码解析
 

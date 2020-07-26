@@ -116,3 +116,51 @@
 
 ### 共享模式下释放锁
 
+共享锁的释放的方法入口是```releaseShared```,它的源代码如下:
+
+```java
+    public final boolean releaseShared(int arg) {
+        if (tryReleaseShared(arg)) {
+            doReleaseShared();
+            return true;
+        }
+        return false;
+    }
+```
+
+该方法的实现比较简单,```tryReleaseShared(arg)(arg)```这个是同步器需要自己实现的方法.释放锁时最核心的方法就是```doReleaseShared()```.该方法在之前```获取共享资源时调用过,现在在释放锁的时候也调用过```.我们来看该方法的实现:
+
+```java
+private void doReleaseShared() {
+        for (;;) {
+            //使用h保存久的头节点
+            Node h = head;
+            //说明队列种存在两个以上的节点
+            if (h != null && h != tail) {
+                int ws = h.waitStatus;
+                if (ws == Node.SIGNAL) {
+                    //ws = -1 说明需要唤醒后续节点,将h节点设置为0
+                    if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
+                        continue;
+                    //在独占模式已经分析过了
+                    unparkSuccessor(h);
+                }
+                //可能该节点被其他线程修改成0
+                else if (ws == 0 &&
+                         !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
+                    continue;
+            }
+            //说明上面的条件都没有满足的,所以退出
+            if (h == head)
+                break;
+        }
+    }
+```
+
+上面的代码主要就是设置头节点状态为0,然后唤醒后续的节点.其中关于```PROPAGATE```状态的引入可以参照[PROPAGATE状态存在的意义](https://www.cnblogs.com/micrari/p/6937995.html).
+
+## 小结
+
+上面内容基于独占模式的对比做了共享模式下锁的获取和释放.整体流程和独占模式下大致相同,最大的不同点就在于```共享模式成功获取资源后还可能会唤醒后续等待的线程,而独占模式是不会这样做的```.
+
+- [JUC-(10)AQS(上)-独占模式获取锁](https://www.jianshu.com/p/8966cf43ea86)
